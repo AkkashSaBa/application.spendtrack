@@ -1,12 +1,14 @@
 import { Feather } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import Svg, { Circle } from "react-native-svg";
 import { storage } from "@/src/utils/storage";
 import { authorizedRequest, forgotPassword, resetPassword, restoreSession, signIn, signOut, signUp, User } from "@/src/auth";
 
 type TxType = "expense" | "income" | "savings";
 type Transaction = { id: string; type: TxType; amount: number; category: string; note?: string; date: string; created_at: string };
 type Budget = { id: string; category: string; monthly_limit: number; updated_at: string };
+type SavingsGoal = { id: string; target: number; updated_at: string };
 const COLORS = { bg: "#F9F8F6", ink: "#1C1C1E", muted: "#777773", green: "#4A6B5D", pale: "#E5EBE8", card: "#FFFFFF", line: "#E5E4E0", red: "#B23B3B", gold: "#C28E38", negBalance: "#FF8A8A" };
 const TRANSFERRED_CATEGORIES = ["Food", "Transport", "Bills", "Rent", "Shopping", "Health", "Travel", "Other"];
 const RECEIVED_CATEGORIES = ["Salary", "Interest", "Trading", "Other"];
@@ -39,16 +41,20 @@ function Dashboard({ user, onSignedOut }: { user: User; onSignedOut: () => void 
   const [actionsFor, setActionsFor] = useState<Transaction | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Transaction | null>(null);
   const [budgetSheet, setBudgetSheet] = useState<string | null>(null);
+  const [savingsGoal, setSavingsGoal] = useState<SavingsGoal | null>(null);
+  const [goalSheetOpen, setGoalSheetOpen] = useState(false);
   const [form, setForm] = useState({ amount: "", category: "Food", note: "", type: "expense" as TxType });
 
   const load = useCallback(async () => {
     try {
-      const [tx, bd] = await Promise.all([
+      const [tx, bd, goal] = await Promise.all([
         authorizedRequest<Transaction[]>("/transactions"),
         authorizedRequest<Budget[]>("/budgets"),
+        authorizedRequest<SavingsGoal | null>("/savings-goal"),
       ]);
       setTransactions(tx);
       setBudgets(bd);
+      setSavingsGoal(goal);
     } catch {
       Alert.alert("Couldn’t load data", "Check your connection and try again.");
     } finally {
@@ -60,6 +66,7 @@ function Dashboard({ user, onSignedOut }: { user: User; onSignedOut: () => void 
   const spent = current.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
   const income = current.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const savings = current.filter((t) => t.type === "savings").reduce((s, t) => s + t.amount, 0);
+  const totalSavings = useMemo(() => transactions.filter((t) => t.type === "savings").reduce((s, t) => s + t.amount, 0), [transactions]);
   const balance = transactions.reduce((s, t) => s + (t.type === "income" ? t.amount : t.type === "expense" ? -t.amount : 0), 0);
   const byCategory = TRANSFERRED_CATEGORIES.map((category) => ({ category, amount: current.filter((t) => t.type === "expense" && t.category === category).reduce((s, t) => s + t.amount, 0) })).filter((x) => x.amount > 0).sort((a, b) => b.amount - a.amount);
   const max = byCategory[0]?.amount || 1;
@@ -114,11 +121,26 @@ function Dashboard({ user, onSignedOut }: { user: User; onSignedOut: () => void 
       setBudgetSheet(null);
     } catch { Alert.alert("Couldn’t remove", "Please try again."); }
   };
+  const saveGoal = async (target: number) => {
+    try {
+      const saved = await authorizedRequest<SavingsGoal>("/savings-goal", { method: "PUT", body: JSON.stringify({ target }) });
+      setSavingsGoal(saved);
+      setGoalSheetOpen(false);
+    } catch { Alert.alert("Couldn’t save goal", "Please try again."); }
+  };
+  const removeGoal = async () => {
+    try {
+      await authorizedRequest("/savings-goal", { method: "DELETE" });
+      setSavingsGoal(null);
+      setGoalSheetOpen(false);
+    } catch { Alert.alert("Couldn’t remove goal", "Please try again."); }
+  };
 
   return <SafeAreaView style={styles.safe}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.top}><View><Text style={styles.eyebrow}>PERSONAL FINANCE</Text><Text style={styles.title}>Hi {user.username}</Text><Text style={styles.sectionSub}>{user.email}</Text></View><Pressable testID="open-settings" onPress={() => setSettingsOpen(true)} style={styles.avatar}><Text style={styles.avatarText}>{user.username.slice(0, 2).toUpperCase()}</Text></Pressable></View>
     <View style={styles.hero}><View style={styles.heroTop}><Text style={styles.heroLabel}>TOTAL BALANCE</Text><Feather name="more-horizontal" size={20} color="#B5C8BE" /></View><Text testID="total-balance" style={[styles.balance, balance < 0 && styles.balanceNeg]}>{balance < 0 ? "-" : ""}{money(balance)}</Text><View style={styles.delta}><Feather name="trending-up" size={13} color="#D7E8DE" /><Text style={styles.deltaText}>On track this month</Text></View><View style={styles.heroBottom}><Text style={styles.heroSmall}>Updated just now</Text><Text style={styles.heroSmall}>{transactions.length} transactions</Text></View></View>
     {overBudget.length > 0 && <View testID="budget-alert-banner" style={styles.alertBanner}><Feather name="alert-triangle" size={16} color={COLORS.red} /><Text style={styles.alertText}>Over budget on {overBudget.map((x) => x.category).join(", ")}</Text></View>}
+    {balance < 0 && <View testID="low-balance-alert" style={styles.lowBalanceCard}><View style={styles.lowBalanceIcon}><Feather name="trending-down" size={18} color={COLORS.red} /></View><View style={{ flex: 1 }}><Text style={styles.lowBalanceTitle}>Balance is in the red</Text><Text style={styles.lowBalanceSub}>You’ve transferred {money(balance)} more than you’ve received. Ease up or add income to get back on track.</Text></View></View>}
     <View style={styles.tabs}>{["Overview", "Analytics", "Categories"].map((x) => <Pressable testID={`tab-${x.toLowerCase()}`} key={x} onPress={() => setTab(x)} style={[styles.tab, tab === x && styles.tabActive]}><Text style={[styles.tabText, tab === x && styles.tabTextActive]}>{x}</Text></Pressable>)}</View>
     {loading ? <ActivityIndicator color={COLORS.green} style={styles.loader} /> : tab === "Categories" ? <CategoriesView data={byCategory} max={max} budgetMap={budgetMap} onEditBudget={setBudgetSheet} /> : tab === "Analytics" ? <Analytics spent={spent} income={income} data={byCategory} max={max} /> : <>
       <View style={styles.monthPicker}>
@@ -128,6 +150,7 @@ function Dashboard({ user, onSignedOut }: { user: User; onSignedOut: () => void 
       </View>
       <View style={styles.sectionHeader}><View><Text style={styles.sectionTitle}>Monthly summary</Text><Text style={styles.sectionSub}>{isCurrentMonth ? "Live overview" : "Past month view"}</Text></View><Pressable testID="add-transaction-small" onPress={openAdd} style={styles.addSmall}><Feather name="plus" size={18} color="#FFF" /></Pressable></View>
       <View style={styles.summaryGrid}><Metric label="Transferred" value={spent} tone={COLORS.red} icon="arrow-up-right" /><Metric label="Received" value={income} tone={COLORS.green} icon="arrow-down-left" /><Metric label="Savings" value={savings} tone={COLORS.gold} icon="pie-chart" /></View>
+      <SavingsGoalCard goal={savingsGoal} saved={totalSavings} onEdit={() => setGoalSheetOpen(true)} />
       <View style={styles.card}><Text style={styles.cardTitle}>Spending by category</Text>{byCategory.length === 0 ? <Empty onAdd={openAdd} /> : byCategory.slice(0, 5).map((x) => <Bar key={x.category} category={x.category} amount={x.amount} max={max} limit={budgetMap[x.category]} />)}</View>
       <View style={styles.sectionHeader}><View><Text style={styles.sectionTitle}>Recent activity</Text><Text style={styles.sectionSub}>Long-press to edit or delete</Text></View><Text style={styles.seeAll}>See all</Text></View>
       <View style={styles.card}>{current.slice(0, 5).map((t) => <TransactionRow key={t.id} t={t} onLongPress={() => setActionsFor(t)} />)}{current.length === 0 && <Text style={styles.emptyText}>No transactions recorded for {monthLabel(month)}.</Text>}</View>
@@ -137,6 +160,7 @@ function Dashboard({ user, onSignedOut }: { user: User; onSignedOut: () => void 
     <TransactionActionsSheet t={actionsFor} onClose={() => setActionsFor(null)} onEdit={openEdit} onDelete={askDelete} />
     <ConfirmDeleteSheet t={confirmDelete} onCancel={() => setConfirmDelete(null)} onConfirm={deleteTransaction} />
     <BudgetSheet category={budgetSheet} currentLimit={budgetSheet ? budgetMap[budgetSheet] : undefined} onClose={() => setBudgetSheet(null)} onSave={saveBudget} onRemove={removeBudget} />
+    <SavingsGoalSheet visible={goalSheetOpen} currentTarget={savingsGoal?.target} saved={totalSavings} onClose={() => setGoalSheetOpen(false)} onSave={saveGoal} onRemove={removeGoal} />
     <SettingsSheet visible={settingsOpen} month={month} monthTransactions={current} onClose={() => setSettingsOpen(false)} onChangePassword={() => { setSettingsOpen(false); setChangePwOpen(true); }} onSignedOut={() => { setSettingsOpen(false); signOut().then(onSignedOut); }} />
     <ChangePasswordSheet visible={changePwOpen} onClose={() => setChangePwOpen(false)} />
   </SafeAreaView>;
@@ -429,6 +453,80 @@ function ResetPasswordSheet({ visible, onClose, onDone }: { visible: boolean; on
   );
 }
 
+function ProgressRing({ pct, size = 96, stroke = 10, color = COLORS.gold }: { pct: number; size?: number; stroke?: number; color?: string }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(100, pct));
+  const offset = c - (clamped / 100) * c;
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <Svg width={size} height={size}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={COLORS.pale} strokeWidth={stroke} fill="none" />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={offset} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      </Svg>
+      <View style={styles.ringCenter}><Text testID="savings-goal-percent" style={styles.ringPct}>{Math.round(clamped)}%</Text></View>
+    </View>
+  );
+}
+
+function SavingsGoalCard({ goal, saved, onEdit }: { goal: SavingsGoal | null; saved: number; onEdit: () => void }) {
+  if (!goal) {
+    return (
+      <Pressable testID="set-savings-goal" onPress={onEdit} style={styles.goalEmptyCard}>
+        <View style={styles.goalEmptyIcon}><Feather name="target" size={20} color={COLORS.gold} /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardTitleTight}>Set a savings goal</Text>
+          <Text style={styles.goalEmptySub}>Pick a target and watch your set-aside money fill the ring.</Text>
+        </View>
+        <Feather name="plus-circle" size={20} color={COLORS.gold} />
+      </Pressable>
+    );
+  }
+  const pct = goal.target > 0 ? (saved / goal.target) * 100 : 0;
+  const reached = saved >= goal.target;
+  const remaining = Math.max(0, goal.target - saved);
+  return (
+    <View testID="savings-goal-card" style={styles.goalCard}>
+      <ProgressRing pct={pct} color={reached ? COLORS.green : COLORS.gold} />
+      <View style={styles.goalInfo}>
+        <View style={styles.goalHeadRow}>
+          <Text style={styles.cardTitleTight}>Savings goal</Text>
+          <Pressable testID="edit-savings-goal" onPress={onEdit} hitSlop={10}><Feather name="edit-2" size={16} color={COLORS.muted} /></Pressable>
+        </View>
+        <Text style={styles.goalSaved}>{money(saved)} <Text style={styles.goalTarget}>/ {money(goal.target)}</Text></Text>
+        <Text style={styles.goalRemaining}>{reached ? "🎉 Goal reached — nice work!" : `${money(remaining)} to go`}</Text>
+      </View>
+    </View>
+  );
+}
+
+function SavingsGoalSheet({ visible, currentTarget, saved, onClose, onSave, onRemove }: { visible: boolean; currentTarget?: number; saved: number; onClose: () => void; onSave: (t: number) => void; onRemove: () => void }) {
+  const [value, setValue] = useState("");
+  useEffect(() => { if (visible) setValue(currentTarget ? String(currentTarget) : ""); }, [currentTarget, visible]);
+  const submit = () => {
+    const n = Number(value);
+    if (!n || n <= 0) return Alert.alert("Enter a target", "Set a savings target greater than zero.");
+    onSave(n);
+  };
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalShade}>
+        <View style={styles.modal}>
+          <View style={styles.modalHead}>
+            <Text style={styles.modalTitle}>Savings goal</Text>
+            <Pressable testID="close-savings-goal" onPress={onClose}><Feather name="x" size={22} color={COLORS.muted} /></Pressable>
+          </View>
+          <Text style={styles.emptyText}>You’ve set aside {money(saved)} so far. Set a target to track your progress.</Text>
+          <Text style={styles.inputLabel}>TARGET AMOUNT</Text>
+          <TextInput testID="savings-goal-amount" value={value} onChangeText={setValue} keyboardType="decimal-pad" placeholder="₹ 0" placeholderTextColor="#A9AAA5" style={styles.input} />
+          <Pressable testID="save-savings-goal" onPress={submit} style={styles.save}><Text style={styles.saveText}>Save goal</Text></Pressable>
+          {currentTarget ? <Pressable testID="remove-savings-goal" onPress={onRemove} style={styles.remove}><Text style={styles.removeText}>Remove goal</Text></Pressable> : null}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 function Metric({ label, value, tone, icon }: { label: string; value: number; tone: string; icon: keyof typeof Feather.glyphMap }) { return <View style={styles.metric}><View style={[styles.metricIcon, { backgroundColor: `${tone}18` }]}><Feather name={icon} size={16} color={tone} /></View><Text style={styles.metricLabel}>{label}</Text><Text style={styles.metricValue}>{money(value)}</Text></View>; }
 
 function Bar({ category, amount, max, limit }: { category: string; amount: number; max: number; limit?: number }) {
@@ -487,4 +585,4 @@ function Nav({ icon, label, active, onPress }: { icon: keyof typeof Feather.glyp
 
 const authStyles = StyleSheet.create({ authScreen: { flex: 1 }, authContent: { padding: 24, gap: 28, flexGrow: 1, justifyContent: "space-between" }, authBrand: { flexDirection: "row", alignItems: "center", gap: 10 }, authMark: { width: 42, height: 42, borderRadius: 14, backgroundColor: COLORS.green, alignItems: "center", justifyContent: "center" }, authBrandText: { color: COLORS.ink, fontSize: 20, fontWeight: "700" }, authEyebrow: { color: COLORS.green, fontSize: 11, letterSpacing: 1.2, fontWeight: "700", marginBottom: 10 }, authTitle: { color: COLORS.ink, fontSize: 32, lineHeight: 38, fontWeight: "700", maxWidth: 320 }, authSub: { color: COLORS.muted, fontSize: 15, lineHeight: 22, marginTop: 12, maxWidth: 320 }, authForm: { gap: 10 }, authError: { color: COLORS.red, fontSize: 13, lineHeight: 18 }, authInfo: { color: COLORS.green, fontSize: 13, lineHeight: 18 }, authToggle: { color: COLORS.green, fontWeight: "700", fontSize: 13, textAlign: "center" }, disabled: { opacity: 0.65 }, linkRow: { alignItems: "center", paddingVertical: 8 }, linkText: { color: COLORS.green, fontWeight: "600", fontSize: 13 } });
 
-const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: COLORS.bg }, content: { padding: 24, paddingBottom: 120, gap: 20 }, top: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, eyebrow: { color: COLORS.green, fontSize: 11, letterSpacing: 1.3, fontWeight: "700", marginBottom: 6 }, title: { color: COLORS.ink, fontSize: 23, fontWeight: "700" }, avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.pale, alignItems: "center", justifyContent: "center" }, avatarText: { color: COLORS.green, fontWeight: "700" }, hero: { backgroundColor: COLORS.green, borderRadius: 22, padding: 22, minHeight: 182, justifyContent: "space-between" }, heroTop: { flexDirection: "row", justifyContent: "space-between" }, heroLabel: { color: "#B5C8BE", fontSize: 11, letterSpacing: 1.2, fontWeight: "700" }, balance: { color: "#FFF", fontSize: 38, fontWeight: "700", letterSpacing: -1, fontVariant: ["tabular-nums"] }, balanceNeg: { color: COLORS.negBalance }, delta: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#5E8272", borderRadius: 999, paddingVertical: 7, paddingHorizontal: 11 }, deltaText: { color: "#D7E8DE", fontSize: 12, fontWeight: "600" }, heroBottom: { flexDirection: "row", justifyContent: "space-between" }, heroSmall: { color: "#B5C8BE", fontSize: 12 }, alertBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#F8E8E8", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "#F1CFCF" }, alertText: { color: COLORS.red, fontSize: 13, fontWeight: "600", flex: 1 }, monthPicker: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: COLORS.card, borderRadius: 14, borderWidth: 1, borderColor: COLORS.line, paddingHorizontal: 8, paddingVertical: 6 }, monthNav: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" }, monthText: { color: COLORS.ink, fontSize: 15, fontWeight: "700" }, tabs: { flexDirection: "row", backgroundColor: COLORS.pale, borderRadius: 14, padding: 4 }, tab: { flex: 1, minHeight: 42, justifyContent: "center", alignItems: "center", borderRadius: 11 }, tabActive: { backgroundColor: COLORS.card, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 }, tabText: { color: COLORS.muted, fontSize: 13, fontWeight: "600" }, tabTextActive: { color: COLORS.green }, sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, sectionTitle: { color: COLORS.ink, fontSize: 19, fontWeight: "700" }, sectionSub: { color: COLORS.muted, fontSize: 12, marginTop: 4 }, addSmall: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.green, alignItems: "center", justifyContent: "center" }, summaryGrid: { flexDirection: "row", gap: 10 }, metric: { flex: 1, backgroundColor: COLORS.card, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, padding: 13 }, metricIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", marginBottom: 9 }, metricLabel: { color: COLORS.muted, fontSize: 11, marginBottom: 5 }, metricValue: { color: COLORS.ink, fontSize: 16, fontWeight: "700", fontVariant: ["tabular-nums"] }, card: { backgroundColor: COLORS.card, borderRadius: 18, borderWidth: 1, borderColor: COLORS.line, padding: 18 }, cardTitle: { color: COLORS.ink, fontSize: 16, fontWeight: "700", marginBottom: 18 }, rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }, budgetRow: { flexDirection: "row", alignItems: "flex-start" }, barWrap: { marginBottom: 15 }, barLine: { flexDirection: "row", justifyContent: "space-between", marginBottom: 7 }, barLabel: { color: COLORS.ink, fontSize: 13, fontWeight: "600" }, barAmount: { color: COLORS.muted, fontSize: 12, fontVariant: ["tabular-nums"] }, track: { height: 8, borderRadius: 4, backgroundColor: COLORS.pale, overflow: "hidden" }, fill: { height: "100%", borderRadius: 4, backgroundColor: COLORS.green }, overText: { color: COLORS.red, fontSize: 11, fontWeight: "600", marginTop: 5 }, empty: { alignItems: "center", gap: 10, paddingVertical: 20 }, emptyTitle: { color: COLORS.muted, fontSize: 13, textAlign: "center" }, emptyAction: { color: COLORS.green, fontWeight: "700", fontSize: 13 }, emptyText: { color: COLORS.muted, fontSize: 13, lineHeight: 20 }, transaction: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.line, gap: 11 }, transactionIcon: { width: 35, height: 35, borderRadius: 12, backgroundColor: COLORS.pale, alignItems: "center", justifyContent: "center" }, transactionCopy: { flex: 1 }, transactionTitle: { color: COLORS.ink, fontWeight: "600", fontSize: 14 }, transactionSub: { color: COLORS.muted, fontSize: 12, marginTop: 3 }, transactionAmount: { fontWeight: "700", fontSize: 14, fontVariant: ["tabular-nums"] }, loader: { marginTop: 50 }, seeAll: { color: COLORS.green, fontWeight: "600", fontSize: 12 }, bottom: { position: "absolute", bottom: 0, left: 0, right: 0, height: 82, backgroundColor: "rgba(255,255,255,0.96)", borderTopWidth: 1, borderTopColor: COLORS.line, flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingHorizontal: 10 }, navItem: { minWidth: 55, minHeight: 48, justifyContent: "center", alignItems: "center", gap: 4 }, navLabel: { color: COLORS.muted, fontSize: 10, fontWeight: "600" }, navActive: { color: COLORS.green }, fab: { width: 54, height: 54, borderRadius: 27, backgroundColor: COLORS.green, alignItems: "center", justifyContent: "center", marginTop: -26, borderWidth: 5, borderColor: COLORS.bg }, modalShade: { flex: 1, backgroundColor: "rgba(28,28,30,0.38)", justifyContent: "flex-end" }, modal: { backgroundColor: COLORS.bg, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 24, paddingBottom: 36, gap: 12 }, modalHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }, modalTitle: { color: COLORS.ink, fontSize: 22, fontWeight: "700" }, typeRow: { flexDirection: "row", gap: 10 }, type: { flex: 1, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: COLORS.line, alignItems: "center", justifyContent: "center" }, typeExpense: { backgroundColor: "#F8E8E8", borderColor: COLORS.red }, typeIncome: { backgroundColor: COLORS.pale, borderColor: COLORS.green }, typeSavings: { backgroundColor: "#F7EFDD", borderColor: COLORS.gold }, typeText: { color: COLORS.ink, fontWeight: "600", fontSize: 13 }, inputLabel: { color: COLORS.muted, fontSize: 11, fontWeight: "700", letterSpacing: 1, marginTop: 5 }, input: { height: 48, borderRadius: 12, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.card, paddingHorizontal: 14, color: COLORS.ink, fontSize: 16 }, chips: { gap: 8, paddingVertical: 2 }, chip: { borderRadius: 999, paddingVertical: 9, paddingHorizontal: 14, backgroundColor: COLORS.pale }, chipActive: { backgroundColor: COLORS.green }, chipText: { color: COLORS.green, fontSize: 12, fontWeight: "600" }, chipTextActive: { color: "#FFF" }, save: { minHeight: 50, borderRadius: 14, backgroundColor: COLORS.green, alignItems: "center", justifyContent: "center", marginTop: 8 }, saveText: { color: "#FFF", fontSize: 15, fontWeight: "700" }, remove: { minHeight: 44, alignItems: "center", justifyContent: "center" }, removeText: { color: COLORS.red, fontSize: 13, fontWeight: "600" }, actionBtn: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, borderRadius: 14, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.line, paddingHorizontal: 16, marginTop: 6 }, actionBtnDanger: { borderColor: "#F1CFCF", backgroundColor: "#FFF6F6" }, actionText: { color: COLORS.ink, fontSize: 15, fontWeight: "600" }, flow: { height: 150, flexDirection: "row", alignItems: "flex-end", justifyContent: "center", gap: 30, borderBottomWidth: 1, borderBottomColor: COLORS.line }, flowBar: { width: 54, borderTopLeftRadius: 10, borderTopRightRadius: 10 }, flowLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 12 } });
+const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: COLORS.bg }, content: { padding: 24, paddingBottom: 120, gap: 20 }, top: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, eyebrow: { color: COLORS.green, fontSize: 11, letterSpacing: 1.3, fontWeight: "700", marginBottom: 6 }, title: { color: COLORS.ink, fontSize: 23, fontWeight: "700" }, avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.pale, alignItems: "center", justifyContent: "center" }, avatarText: { color: COLORS.green, fontWeight: "700" }, hero: { backgroundColor: COLORS.green, borderRadius: 22, padding: 22, minHeight: 182, justifyContent: "space-between" }, heroTop: { flexDirection: "row", justifyContent: "space-between" }, heroLabel: { color: "#B5C8BE", fontSize: 11, letterSpacing: 1.2, fontWeight: "700" }, balance: { color: "#FFF", fontSize: 38, fontWeight: "700", letterSpacing: -1, fontVariant: ["tabular-nums"] }, balanceNeg: { color: COLORS.negBalance }, delta: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#5E8272", borderRadius: 999, paddingVertical: 7, paddingHorizontal: 11 }, deltaText: { color: "#D7E8DE", fontSize: 12, fontWeight: "600" }, heroBottom: { flexDirection: "row", justifyContent: "space-between" }, heroSmall: { color: "#B5C8BE", fontSize: 12 }, alertBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#F8E8E8", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "#F1CFCF" }, alertText: { color: COLORS.red, fontSize: 13, fontWeight: "600", flex: 1 }, monthPicker: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: COLORS.card, borderRadius: 14, borderWidth: 1, borderColor: COLORS.line, paddingHorizontal: 8, paddingVertical: 6 }, monthNav: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" }, monthText: { color: COLORS.ink, fontSize: 15, fontWeight: "700" }, tabs: { flexDirection: "row", backgroundColor: COLORS.pale, borderRadius: 14, padding: 4 }, tab: { flex: 1, minHeight: 42, justifyContent: "center", alignItems: "center", borderRadius: 11 }, tabActive: { backgroundColor: COLORS.card, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 }, tabText: { color: COLORS.muted, fontSize: 13, fontWeight: "600" }, tabTextActive: { color: COLORS.green }, sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, sectionTitle: { color: COLORS.ink, fontSize: 19, fontWeight: "700" }, sectionSub: { color: COLORS.muted, fontSize: 12, marginTop: 4 }, addSmall: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.green, alignItems: "center", justifyContent: "center" }, summaryGrid: { flexDirection: "row", gap: 10 }, metric: { flex: 1, backgroundColor: COLORS.card, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, padding: 13 }, metricIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", marginBottom: 9 }, metricLabel: { color: COLORS.muted, fontSize: 11, marginBottom: 5 }, metricValue: { color: COLORS.ink, fontSize: 16, fontWeight: "700", fontVariant: ["tabular-nums"] }, card: { backgroundColor: COLORS.card, borderRadius: 18, borderWidth: 1, borderColor: COLORS.line, padding: 18 }, cardTitle: { color: COLORS.ink, fontSize: 16, fontWeight: "700", marginBottom: 18 }, rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }, budgetRow: { flexDirection: "row", alignItems: "flex-start" }, barWrap: { marginBottom: 15 }, barLine: { flexDirection: "row", justifyContent: "space-between", marginBottom: 7 }, barLabel: { color: COLORS.ink, fontSize: 13, fontWeight: "600" }, barAmount: { color: COLORS.muted, fontSize: 12, fontVariant: ["tabular-nums"] }, track: { height: 8, borderRadius: 4, backgroundColor: COLORS.pale, overflow: "hidden" }, fill: { height: "100%", borderRadius: 4, backgroundColor: COLORS.green }, overText: { color: COLORS.red, fontSize: 11, fontWeight: "600", marginTop: 5 }, empty: { alignItems: "center", gap: 10, paddingVertical: 20 }, emptyTitle: { color: COLORS.muted, fontSize: 13, textAlign: "center" }, emptyAction: { color: COLORS.green, fontWeight: "700", fontSize: 13 }, emptyText: { color: COLORS.muted, fontSize: 13, lineHeight: 20 }, transaction: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.line, gap: 11 }, transactionIcon: { width: 35, height: 35, borderRadius: 12, backgroundColor: COLORS.pale, alignItems: "center", justifyContent: "center" }, transactionCopy: { flex: 1 }, transactionTitle: { color: COLORS.ink, fontWeight: "600", fontSize: 14 }, transactionSub: { color: COLORS.muted, fontSize: 12, marginTop: 3 }, transactionAmount: { fontWeight: "700", fontSize: 14, fontVariant: ["tabular-nums"] }, loader: { marginTop: 50 }, seeAll: { color: COLORS.green, fontWeight: "600", fontSize: 12 }, bottom: { position: "absolute", bottom: 0, left: 0, right: 0, height: 82, backgroundColor: "rgba(255,255,255,0.96)", borderTopWidth: 1, borderTopColor: COLORS.line, flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingHorizontal: 10 }, navItem: { minWidth: 55, minHeight: 48, justifyContent: "center", alignItems: "center", gap: 4 }, navLabel: { color: COLORS.muted, fontSize: 10, fontWeight: "600" }, navActive: { color: COLORS.green }, fab: { width: 54, height: 54, borderRadius: 27, backgroundColor: COLORS.green, alignItems: "center", justifyContent: "center", marginTop: -26, borderWidth: 5, borderColor: COLORS.bg }, modalShade: { flex: 1, backgroundColor: "rgba(28,28,30,0.38)", justifyContent: "flex-end" }, modal: { backgroundColor: COLORS.bg, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 24, paddingBottom: 36, gap: 12 }, modalHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }, modalTitle: { color: COLORS.ink, fontSize: 22, fontWeight: "700" }, typeRow: { flexDirection: "row", gap: 10 }, type: { flex: 1, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: COLORS.line, alignItems: "center", justifyContent: "center" }, typeExpense: { backgroundColor: "#F8E8E8", borderColor: COLORS.red }, typeIncome: { backgroundColor: COLORS.pale, borderColor: COLORS.green }, typeSavings: { backgroundColor: "#F7EFDD", borderColor: COLORS.gold }, typeText: { color: COLORS.ink, fontWeight: "600", fontSize: 13 }, inputLabel: { color: COLORS.muted, fontSize: 11, fontWeight: "700", letterSpacing: 1, marginTop: 5 }, input: { height: 48, borderRadius: 12, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.card, paddingHorizontal: 14, color: COLORS.ink, fontSize: 16 }, chips: { gap: 8, paddingVertical: 2 }, chip: { borderRadius: 999, paddingVertical: 9, paddingHorizontal: 14, backgroundColor: COLORS.pale }, chipActive: { backgroundColor: COLORS.green }, chipText: { color: COLORS.green, fontSize: 12, fontWeight: "600" }, chipTextActive: { color: "#FFF" }, save: { minHeight: 50, borderRadius: 14, backgroundColor: COLORS.green, alignItems: "center", justifyContent: "center", marginTop: 8 }, saveText: { color: "#FFF", fontSize: 15, fontWeight: "700" }, remove: { minHeight: 44, alignItems: "center", justifyContent: "center" }, removeText: { color: COLORS.red, fontSize: 13, fontWeight: "600" }, actionBtn: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 52, borderRadius: 14, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.line, paddingHorizontal: 16, marginTop: 6 }, actionBtnDanger: { borderColor: "#F1CFCF", backgroundColor: "#FFF6F6" }, actionText: { color: COLORS.ink, fontSize: 15, fontWeight: "600" }, flow: { height: 150, flexDirection: "row", alignItems: "flex-end", justifyContent: "center", gap: 30, borderBottomWidth: 1, borderBottomColor: COLORS.line }, flowBar: { width: 54, borderTopLeftRadius: 10, borderTopRightRadius: 10 }, flowLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 12 }, lowBalanceCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#FDECEC", borderRadius: 16, padding: 14, borderWidth: 1, borderColor: "#F1CFCF" }, lowBalanceIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#F8DADA", alignItems: "center", justifyContent: "center" }, lowBalanceTitle: { color: COLORS.red, fontSize: 14, fontWeight: "700" }, lowBalanceSub: { color: "#8A4A4A", fontSize: 12, lineHeight: 17, marginTop: 3 }, ringCenter: { position: "absolute", alignItems: "center", justifyContent: "center" }, ringPct: { color: COLORS.ink, fontSize: 20, fontWeight: "700", fontVariant: ["tabular-nums"] }, cardTitleTight: { color: COLORS.ink, fontSize: 16, fontWeight: "700" }, goalCard: { flexDirection: "row", alignItems: "center", gap: 18, backgroundColor: COLORS.card, borderRadius: 18, borderWidth: 1, borderColor: COLORS.line, padding: 18 }, goalInfo: { flex: 1, gap: 4 }, goalHeadRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, goalSaved: { color: COLORS.gold, fontSize: 20, fontWeight: "700", fontVariant: ["tabular-nums"] }, goalTarget: { color: COLORS.muted, fontSize: 14, fontWeight: "600" }, goalRemaining: { color: COLORS.muted, fontSize: 12, marginTop: 2 }, goalEmptyCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#FBF6EC", borderRadius: 18, borderWidth: 1, borderColor: "#EAD9B6", padding: 16 }, goalEmptyIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: "#F3E6C9", alignItems: "center", justifyContent: "center" }, goalEmptySub: { color: "#8A7A52", fontSize: 12, lineHeight: 17, marginTop: 3 } });

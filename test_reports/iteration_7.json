@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 7 — Full backend + frontend regression for new Savings Goal and Low-Balance-Alert features. Backend: 11/11 pytest cases passed (100%). All new /api/savings-goal endpoints work correctly: GET returns null when unset, PUT upserts and preserves the same id on subsequent updates (no duplicates), DELETE returns 200 (404 on second delete), validation blocks target<=0 and missing target with 422, and all three methods require auth (401 without token). Per-user isolation verified: user A's goal is invisible to user B and vice versa. Regression: negative-balance scenario (income=100, expense=250, savings=6000) yields income-expense=-150 while savings stays isolated at 6000. Frontend (mobile viewport 390x900): Overview empty-state 'set-savings-goal' card renders when no goal is set; adding savings=6000 and PUT-ing target=10000 shows the savings-goal-card with '60%' in savings-goal-percent; editing target to 20000 updates the ring to '30%'; removing the goal returns to the empty 'set-savings-goal' card. Low-balance-alert card is NOT rendered when balance >= 0 (₹100 after income only), and IS rendered as testID=low-balance-alert when balance goes negative — total-balance shows '-₹150'. Monthly Savings metric (₹6,000) is still displayed correctly and does not affect balance. No API failures, no red-screen errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "shadow* style props", "issue": "Console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\"'. Non-blocking on web preview; will show up in RN 0.76+ / new-arch native builds. Consider migrating shadow* → boxShadow in the affected StyleSheet entries in /app/frontend/app/index.tsx."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Migrate deprecated shadow* style props to boxShadow in index.tsx to silence the RN web deprecation warning.",
+    "(Optional / carried from iter6) server.py is 585 lines — still under 700, but plan to split auth/transactions/budgets/savings into modules soon."
+  ],
+  "critical_code_review_comments": [
+    "SavingsGoal endpoints use upsert with $setOnInsert on id — clean and matches Budget pattern. Isolation via owner_id filter is correct.",
+    "SavingsGoal Pydantic model uses gt=0 constraint — validation returns 422 for zero/negative as expected.",
+    "GET /api/savings-goal returns Optional[SavingsGoal] which serializes to JSON null when absent — frontend correctly handles this to toggle empty state.",
+    "Frontend balance = income - expense (savings excluded) — matches spec. totalSavings for the ring is cumulative across all months (sum of all savings transactions), while the monthly 'Savings' metric is month-filtered — both correct per requirements.",
+    "Deprecated shadow* style warning appears on web preview only; not a functional issue."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7.py (new)",
+    "/app/test_reports/pytest/iter7_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (all critical flows verified)"},
+  "seed_data_creation": "Disposable users per test (prefixes: sga/sgb/bal/uisg + uuid). No production data touched. Frontend created one throwaway user via signup UI to run the full flow. QA account not touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Frontend base URL env var is EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL). Backend expects username-based login. Savings goal target must be > 0 (422 otherwise). Frontend Overview screen renders SavingsGoalCard in place of the goal card (either empty 'set-savings-goal' or filled 'savings-goal-card' with 'savings-goal-percent'); low-balance-alert appears iff balance = income - expense < 0 (savings excluded). When automating add-transaction from a 390-wide viewport, the modal may exceed the visible viewport; use JS click (element.click()) via page.evaluate to bypass Playwright's viewport check on data-testid selectors — the app itself is not broken.",
+  "rca_of_issue": "N/A — feature validation run. Both new features (savings goal + low balance alert) match the spec exactly on backend and mobile web preview."
+}

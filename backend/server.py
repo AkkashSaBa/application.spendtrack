@@ -162,6 +162,16 @@ class Budget(BaseModel):
     updated_at: str
 
 
+class SavingsGoalUpsert(BaseModel):
+    target: float = Field(gt=0)
+
+
+class SavingsGoal(BaseModel):
+    id: str
+    target: float
+    updated_at: str
+
+
 def create_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
@@ -520,6 +530,36 @@ async def delete_budget(category: str, user: dict[str, Any] = Depends(current_us
     result = await db.budgets.delete_one({"owner_id": user["id"], "category": category})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Budget not found")
+    return {"ok": True}
+
+
+@api_router.get("/savings-goal", response_model=Optional[SavingsGoal])
+async def get_savings_goal(user: dict[str, Any] = Depends(current_user)):
+    doc = await db.savings_goals.find_one({"owner_id": user["id"]}, {"_id": 0, "owner_id": 0})
+    return SavingsGoal(**doc) if doc else None
+
+
+@api_router.put("/savings-goal", response_model=SavingsGoal)
+async def upsert_savings_goal(input: SavingsGoalUpsert, user: dict[str, Any] = Depends(current_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    updated = await db.savings_goals.find_one_and_update(
+        {"owner_id": user["id"]},
+        {
+            "$set": {"target": input.target, "updated_at": now},
+            "$setOnInsert": {"id": str(uuid.uuid4()), "owner_id": user["id"]},
+        },
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+        projection={"_id": 0, "owner_id": 0},
+    )
+    return SavingsGoal(**updated)
+
+
+@api_router.delete("/savings-goal")
+async def delete_savings_goal(user: dict[str, Any] = Depends(current_user)):
+    result = await db.savings_goals.delete_one({"owner_id": user["id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Savings goal not found")
     return {"ok": True}
 
 # Include the router in the main app

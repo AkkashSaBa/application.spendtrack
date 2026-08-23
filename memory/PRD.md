@@ -46,4 +46,11 @@ Build a mobile app from the supplied Akash Spends concept, updated into a spendi
 - Backend: `Transaction.type` accepts `savings` in addition to `expense`/`income`.
 - Env: added JWT_SECRET; EMERGENT_EMAIL_KEY left blank (forgot-password email out of scope — degrades gracefully).
 
+
+## Changelog — 2026-08-23 (features)
+- Fixed forgot-password: set the provisioned EMERGENT_EMAIL_KEY so reset codes actually send (email proxy returns 202). Verified 11/11.
+- **Savings Goals**: new backend GET/PUT/DELETE /api/savings-goal (per-user target). Overview shows a circular progress ring (react-native-svg) of cumulative savings vs target, with set/edit/remove sheet. Ring turns green at 100%.
+- **Low Balance Alert**: gentle warning card on Overview shown only when Total Balance is negative (transferred > received), explaining the shortfall.
+- Verified end-to-end by testing agent (iteration 7): 11/11 backend + all frontend flows, no bugs.
+
 3. Add optional statement import after the core manual workflow is reviewed.
