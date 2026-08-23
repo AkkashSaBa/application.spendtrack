@@ -9,6 +9,7 @@ import { authorizedRequest, forgotPassword, resetPassword, restoreSession, signI
 type TxType = "expense" | "income" | "savings";
 type Transaction = { id: string; type: TxType; amount: number; category: string; note?: string; date: string; created_at: string; goal_id?: string | null };
 type Budget = { id: string; category: string; monthly_limit: number; updated_at: string };
+type AdminUser = { id: string; username: string; email: string; role: string; disabled: boolean; created_at?: string | null; transaction_count: number; balance: number };
 type SavingsGoal = { id: string; name: string; target: number; target_date?: string | null; celebrated: boolean; created_at: string; updated_at: string };
 const COLORS = { bg: "#F9F8F6", ink: "#1C1C1E", muted: "#777773", green: "#4A6B5D", pale: "#E5EBE8", card: "#FFFFFF", line: "#E5E4E0", red: "#B23B3B", gold: "#C28E38", negBalance: "#FF8A8A" };
 const TRANSFERRED_CATEGORIES = ["Food", "Transport", "Bills", "Rent", "Shopping", "Health", "Travel", "Other"];
@@ -41,6 +42,7 @@ function Dashboard({ user, onSignedOut }: { user: User; onSignedOut: () => void 
   const [month, setMonth] = useState(nowMonth());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [changePwOpen, setChangePwOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [actionsFor, setActionsFor] = useState<Transaction | null>(null);
@@ -201,12 +203,13 @@ function Dashboard({ user, onSignedOut }: { user: User; onSignedOut: () => void 
     <BudgetSheet category={budgetSheet} currentLimit={budgetSheet ? budgetMap[budgetSheet] : undefined} onClose={() => setBudgetSheet(null)} onSave={saveBudget} onRemove={removeBudget} />
     <SavingsGoalSheet visible={goalSheetOpen} goal={editingGoal} saved={editingGoal ? (savedByGoal[editingGoal.id] || 0) : 0} onClose={() => { setGoalSheetOpen(false); setEditingGoal(null); }} onSave={saveGoal} onRemove={removeGoal} />
     <CelebrationOverlay goal={celebrateGoal} onClose={() => setCelebrateGoal(null)} />
-    <SettingsSheet visible={settingsOpen} month={month} monthTransactions={current} onClose={() => setSettingsOpen(false)} onChangePassword={() => { setSettingsOpen(false); setChangePwOpen(true); }} onSignedOut={() => { setSettingsOpen(false); signOut().then(onSignedOut); }} />
+    <SettingsSheet visible={settingsOpen} month={month} monthTransactions={current} isAdmin={user.role === "admin"} onClose={() => setSettingsOpen(false)} onChangePassword={() => { setSettingsOpen(false); setChangePwOpen(true); }} onOpenAdmin={() => { setSettingsOpen(false); setAdminOpen(true); }} onSignedOut={() => { setSettingsOpen(false); signOut().then(onSignedOut); }} />
     <ChangePasswordSheet visible={changePwOpen} onClose={() => setChangePwOpen(false)} />
+    <AdminSheet visible={adminOpen} onClose={() => setAdminOpen(false)} />
   </SafeAreaView>;
 }
 
-function SettingsSheet({ visible, month, monthTransactions, onClose, onChangePassword, onSignedOut }: { visible: boolean; month: string; monthTransactions: Transaction[]; onClose: () => void; onChangePassword: () => void; onSignedOut: () => void }) {
+function SettingsSheet({ visible, month, monthTransactions, isAdmin, onClose, onChangePassword, onOpenAdmin, onSignedOut }: { visible: boolean; month: string; monthTransactions: Transaction[]; isAdmin: boolean; onClose: () => void; onChangePassword: () => void; onOpenAdmin: () => void; onSignedOut: () => void }) {
   const [busy, setBusy] = useState(false);
   const shareCsv = async () => {
     if (busy) return;
@@ -237,6 +240,12 @@ function SettingsSheet({ visible, month, monthTransactions, onClose, onChangePas
             <Feather name="lock" size={18} color={COLORS.ink} />
             <Text style={styles.actionText}>Change password</Text>
           </Pressable>
+          {isAdmin && (
+            <Pressable testID="open-admin-panel" onPress={onOpenAdmin} style={styles.actionBtn}>
+              <Feather name="shield" size={18} color={COLORS.ink} />
+              <Text style={styles.actionText}>Admin panel</Text>
+            </Pressable>
+          )}
           <Pressable testID="settings-logout" onPress={onSignedOut} style={[styles.actionBtn, styles.actionBtnDanger]}>
             <Feather name="log-out" size={18} color={COLORS.red} />
             <Text style={[styles.actionText, { color: COLORS.red }]}>Log out</Text>
@@ -281,6 +290,179 @@ function ChangePasswordSheet({ visible, onClose }: { visible: boolean; onClose: 
           <Pressable testID="submit-change-password" onPress={submit} disabled={busy || ok} style={[styles.save, (busy || ok) && authStyles.disabled]}>
             {busy ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveText}>Update password</Text>}
           </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function AdminSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<AdminUser | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await authorizedRequest<AdminUser[]>("/admin/users");
+      setUsers(list);
+    } catch { Alert.alert("Couldn't load users", "Please try again."); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { if (visible) { setSelected(null); load(); } }, [visible, load]);
+
+  const toggleDisabled = async (u: AdminUser) => {
+    setBusyId(u.id);
+    try {
+      await authorizedRequest(`/admin/users/${u.id}/disable`, { method: "PUT", body: JSON.stringify({ disabled: !u.disabled }) });
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, disabled: !u.disabled } : x)));
+    } catch (e) { Alert.alert("Couldn't update", e instanceof Error ? e.message : "Please try again."); }
+    finally { setBusyId(null); }
+  };
+  const deleteUser = (u: AdminUser) => {
+    Alert.alert("Delete this user?", `This permanently deletes ${u.username} and all of their transactions, budgets, and goals.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => {
+        setBusyId(u.id);
+        try {
+          await authorizedRequest(`/admin/users/${u.id}`, { method: "DELETE" });
+          setUsers((prev) => prev.filter((x) => x.id !== u.id));
+        } catch (e) { Alert.alert("Couldn't delete", e instanceof Error ? e.message : "Please try again."); }
+        finally { setBusyId(null); }
+      } },
+    ]);
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={selected ? () => setSelected(null) : onClose}>
+      <View style={styles.modalShade}>
+        <View style={[styles.modal, { maxHeight: "88%" }]}>
+          <View style={styles.modalHead}>
+            <Text style={styles.modalTitle}>{selected ? selected.username : "Admin panel"}</Text>
+            <Pressable testID="close-admin" onPress={selected ? () => setSelected(null) : onClose}>
+              <Feather name={selected ? "arrow-left" : "x"} size={22} color={COLORS.muted} />
+            </Pressable>
+          </View>
+          {selected
+            ? <AdminUserDetail user={selected} onBack={() => setSelected(null)} />
+            : loading
+              ? <ActivityIndicator color={COLORS.green} style={styles.loader} />
+              : (
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
+                  <Text style={styles.emptyText}>{users.length} registered {users.length === 1 ? "user" : "users"}.</Text>
+                  {users.map((u) => (
+                    <View key={u.id} testID={`admin-user-${u.username}`} style={styles.card}>
+                      <View style={styles.rowBetween}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.cardTitleTight}>{u.username}{u.role === "admin" ? "  ·  admin" : ""}</Text>
+                          <Text style={styles.transactionSub}>{u.email}</Text>
+                        </View>
+                        {u.disabled && <View style={styles.goalBadge}><Text style={[styles.goalBadgeText, { color: COLORS.red }]}>Disabled</Text></View>}
+                      </View>
+                      <View style={styles.rowBetween}>
+                        <Text style={styles.transactionSub}>Balance: <Text style={{ color: u.balance < 0 ? COLORS.red : COLORS.green, fontWeight: "700" }}>{u.balance < 0 ? "-" : ""}{money(u.balance)}</Text></Text>
+                        <Text style={styles.transactionSub}>{u.transaction_count} transaction{u.transaction_count === 1 ? "" : "s"}</Text>
+                      </View>
+                      <Pressable testID={`admin-view-${u.username}`} onPress={() => setSelected(u)} style={styles.actionBtn}>
+                        <Feather name="eye" size={16} color={COLORS.ink} />
+                        <Text style={styles.actionText}>View transactions</Text>
+                      </Pressable>
+                      <Pressable testID={`admin-toggle-${u.username}`} disabled={busyId === u.id} onPress={() => toggleDisabled(u)} style={styles.actionBtn}>
+                        <Feather name={u.disabled ? "unlock" : "lock"} size={16} color={COLORS.ink} />
+                        <Text style={styles.actionText}>{u.disabled ? "Enable account" : "Disable account"}</Text>
+                      </Pressable>
+                      {u.role !== "admin" && (
+                        <Pressable testID={`admin-delete-${u.username}`} disabled={busyId === u.id} onPress={() => deleteUser(u)} style={[styles.actionBtn, styles.actionBtnDanger]}>
+                          <Feather name="trash-2" size={16} color={COLORS.red} />
+                          <Text style={[styles.actionText, { color: COLORS.red }]}>Delete user</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function AdminUserDetail({ user }: { user: AdminUser; onBack: () => void }) {
+  const [txs, setTxs] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Transaction | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await authorizedRequest<Transaction[]>(`/admin/users/${user.id}/transactions`);
+      setTxs(list);
+    } catch { Alert.alert("Couldn't load transactions", "Please try again."); }
+    finally { setLoading(false); }
+  }, [user.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const deleteTx = (t: Transaction) => {
+    Alert.alert("Delete this transaction?", `${t.category} · ${money(t.amount)}`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => {
+        try {
+          await authorizedRequest(`/admin/transactions/${t.id}`, { method: "DELETE" });
+          setTxs((prev) => prev.filter((x) => x.id !== t.id));
+        } catch { Alert.alert("Couldn't delete", "Please try again."); }
+      } },
+    ]);
+  };
+
+  return (
+    <>
+      {loading ? <ActivityIndicator color={COLORS.green} style={styles.loader} /> : (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 4, paddingBottom: 8 }}>
+          {txs.length === 0 && <Text style={styles.emptyText}>No transactions for this user yet.</Text>}
+          {txs.map((t) => <TransactionRow key={t.id} t={t} onLongPress={() => setEditing(t)} />)}
+        </ScrollView>
+      )}
+      <AdminEditTransactionSheet t={editing} onClose={() => setEditing(null)} onSaved={(updated) => { setTxs((prev) => prev.map((x) => (x.id === updated.id ? updated : x))); setEditing(null); }} onDeleted={() => { if (editing) deleteTx(editing); setEditing(null); }} />
+    </>
+  );
+}
+
+function AdminEditTransactionSheet({ t, onClose, onSaved, onDeleted }: { t: Transaction | null; onClose: () => void; onSaved: (t: Transaction) => void; onDeleted: () => void }) {
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (t) { setAmount(String(t.amount)); setCategory(t.category); setNote(t.note || ""); } }, [t]);
+  const save = async () => {
+    if (!t) return;
+    const amt = Number(amount);
+    if (!amt || amt <= 0) return Alert.alert("Add an amount", "Enter a value greater than zero.");
+    setBusy(true);
+    try {
+      const updated = await authorizedRequest<Transaction>(`/admin/transactions/${t.id}`, { method: "PUT", body: JSON.stringify({ amount: amt, category: category.trim(), note: note.trim() }) });
+      onSaved(updated);
+    } catch (e) { Alert.alert("Couldn't save", e instanceof Error ? e.message : "Please try again."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Modal visible={!!t} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalShade}>
+        <View style={styles.modal}>
+          <View style={styles.modalHead}>
+            <Text style={styles.modalTitle}>Edit transaction</Text>
+            <Pressable testID="close-admin-edit-tx" onPress={onClose}><Feather name="x" size={22} color={COLORS.muted} /></Pressable>
+          </View>
+          <Text style={styles.inputLabel}>AMOUNT</Text>
+          <TextInput testID="admin-tx-amount" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" style={styles.input} />
+          <Text style={styles.inputLabel}>CATEGORY</Text>
+          <TextInput testID="admin-tx-category" value={category} onChangeText={setCategory} style={styles.input} />
+          <Text style={styles.inputLabel}>NOTE</Text>
+          <TextInput testID="admin-tx-note" value={note} onChangeText={setNote} style={styles.input} />
+          <Pressable testID="admin-save-tx" onPress={save} disabled={busy} style={[styles.save, busy && authStyles.disabled]}>
+            {busy ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveText}>Save changes</Text>}
+          </Pressable>
+          <Pressable testID="admin-delete-tx" onPress={onDeleted} style={styles.remove}><Text style={styles.removeText}>Delete transaction</Text></Pressable>
         </View>
       </KeyboardAvoidingView>
     </Modal>
