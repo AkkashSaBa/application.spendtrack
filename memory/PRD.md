@@ -61,4 +61,12 @@ Build a mobile app from the supplied Akash Spends concept, updated into a spendi
 - **Goal Celebration**: hitting a goal (saved ≥ target) fires a one-time confetti + badge modal (react-native-confetti-cannon); celebrated flag persisted server-side so it never repeats. Reached goals show a "Reached" badge.
 - Verified by testing agent (iteration 8): 20/20 backend + all frontend flows, no blocking issues.
 
+
+## Changelog — 2026-08-23 (data persistence / session bug)
+- BUG: logout + quick re-login erased data. Root cause: JWT signed only {sub, iat, exp} at second precision → same-second re-login produced an identical token already on the revoked denylist → 401 "Session ended" → app couldn't load data.
+- FIX: create_token now adds a unique jti (uuid4) per login, so every token is unique and re-login never collides with a revoked token. Data is keyed by stable user id and persists across unlimited logout/login cycles.
+- Also hardened GET /api/savings-goals to tolerate legacy single-goal docs (defaults for name/celebrated/created_at) so it never 500s.
+- No Apple Sign-In exists in the app (never implemented).
+- Verified by testing agent (iteration 9): 6/6 backend + 5/5 frontend rapid logout/login cycles preserve data, no session errors.
+
 3. Add optional statement import after the core manual workflow is reviewed.

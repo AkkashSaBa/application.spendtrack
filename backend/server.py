@@ -211,7 +211,7 @@ class SavingsGoal(BaseModel):
 def create_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
-        {"sub": user_id, "iat": now, "exp": now + timedelta(minutes=TOKEN_MINUTES)},
+        {"sub": user_id, "jti": str(uuid.uuid4()), "iat": now, "exp": now + timedelta(minutes=TOKEN_MINUTES)},
         JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )
@@ -572,7 +572,15 @@ async def delete_budget(category: str, user: dict[str, Any] = Depends(current_us
 @api_router.get("/savings-goals", response_model=List[SavingsGoal])
 async def get_savings_goals(user: dict[str, Any] = Depends(current_user)):
     docs = await db.savings_goals.find({"owner_id": user["id"]}, {"_id": 0, "owner_id": 0}).sort("created_at", 1).to_list(100)
-    return [SavingsGoal(**doc) for doc in docs]
+    goals = []
+    for doc in docs:
+        # Tolerate legacy goal docs created by the earlier single-goal endpoint.
+        doc.setdefault("name", "Savings goal")
+        doc.setdefault("celebrated", False)
+        doc.setdefault("created_at", doc.get("updated_at") or datetime.now(timezone.utc).isoformat())
+        doc.setdefault("updated_at", doc.get("created_at"))
+        goals.append(SavingsGoal(**doc))
+    return goals
 
 
 @api_router.post("/savings-goals", response_model=SavingsGoal)

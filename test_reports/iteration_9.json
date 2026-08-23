@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 9 - VERIFIED FIX for the persistence bug (create_token now includes unique jti + get_savings_goals tolerates legacy docs). Backend: 6/6 pytest cases PASSED (100%) — (1) 10 back-to-back logins for the same user produced 10 UNIQUE access_token strings (jti proven present and unique via jwt.decode); (2) 6 rapid logout+login cycles within the same second: /api/me returned SAME user id every time, GET /api/transactions still returned the seed tx, GET /api/savings-goals still returned the seed goal — no data erased, no 401 'Session ended'; (3) after logout, the OLD token returns 401 while a fresh token issued in the same second returns 200 (logout scope correct); (4) GET /api/savings-goals with a synthetically inserted legacy doc (no name/celebrated/created_at) returns 200 with defaulted fields ('Savings goal', celebrated=false, created_at=updated_at) — legacy tolerance regression guarded; (5) user id stable across 5 independent logins. Frontend (mobile 390x900): fresh signup 'perstXXXXXXXX' → created 'Persist Goal' (₹1,000) via add-goal-btn → added ₹250 expense (Food) via add-transaction-fab → performed 5 rapid logout(open-settings → settings-logout)+login(auth-username/password/auth-submit) cycles back-to-back. AFTER EACH cycle the dashboard showed 'Persist Goal' card AND the ₹250 Food transaction (balance -₹250, low-balance-alert visible) — 0 cycles erased data, 0 'Session ended' errors, 0 red screens. Deprecated packages detected: none. React-Native issues detected: only pre-known 'shadow*' style-props web deprecation warning (non-blocking, already tracked in iter7/iter8).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "shadow* style props", "issue": "Console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\"'. Non-blocking, already reported in iter7/iter8. Reference: /app/frontend/app/index.tsx (StyleSheet entries using shadowColor/shadowOffset/shadowOpacity/shadowRadius)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [
+    "(Carried) Migrate shadow* -> boxShadow in index.tsx to silence RN web deprecation warning on web preview.",
+    "(Carried) server.py is 649 lines — still under 700 threshold, but splitting into auth/transactions/budgets/goals modules would improve maintainability."
+  ],
+  "critical_code_review_comments": [
+    "create_token now signs {sub, jti=uuid4(), iat, exp} — unique per call regardless of second-precision iat/exp. Bug root cause correctly eliminated: two calls in the same second produce different tokens because jti differs.",
+    "logout still upserts the exact token string into db.revoked_tokens and current_user still rejects any incoming token whose exact string is in that collection — logout revocation scope is preserved for the specific old token only (verified in TestLogoutRevocationScope).",
+    "get_savings_goals defaults name='Savings goal', celebrated=False, created_at=updated_at (or now) for legacy docs — GET returns 200 instead of 500 (verified by directly inserting a legacy doc lacking those fields and calling the endpoint).",
+    "User data is owner_id scoped by stable user['id'] (uuid, never changes across logins) — /api/me returns the same id across 5+ independent logins.",
+    "revoked_tokens collection can grow unbounded. Non-blocking, but consider a TTL index on 'expires_at' (already stored on each doc) to auto-purge expired revoked tokens — file: /app/backend/server.py:396.",
+    "Frontend correctly re-fetches transactions/goals after login (state re-hydrated from server) — no localStorage-only caching; owner-scoped server data is source of truth."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter9.py (new)",
+    "/app/test_reports/pytest/iter9_results.xml (new)",
+    "/app/test_reports/iteration_9.json (new)"
+  ],
+  "success_rate": {"backend": "100% (6/6 pytest)", "frontend": "100% (5/5 rapid logout+login cycles preserved goal + transaction, no Session ended)"},
+  "seed_data_creation": "Disposable users only (prefixes jti/jtc/rlc/rev/lgy/uid + uuid on backend; perstXXXX on frontend). Legacy-goal regression test inserted one synthetic legacy doc directly into Mongo and cleaned it up in the same script. No production/QA data modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Frontend env var is EXPO_PUBLIC_BACKEND_URL. Auth testIDs: auth-toggle (switch login/signup), auth-username, auth-email, auth-password, auth-submit, open-settings, settings-logout, add-goal-btn, savings-goal-name, savings-goal-amount, save-savings-goal, add-transaction-fab, transaction-amount, type-expense, category-food, save-transaction, total-balance. To reproduce the fixed bug on a HYPOTHETICAL regression: sign up user, take a token, logout immediately, login again — the new token must NOT equal the old one and /api/me on the new token must NOT return 'Session ended'. This is now guarded by TestUniqueTokenPerLogin and TestRapidLogoutLoginPreservesData in test_iter9.py.",
+  "rca_of_issue": "ROOT CAUSE (confirmed): pre-fix create_token signed only {sub, iat, exp} with second-precision timestamps. When JWT_SECRET, sub, iat, and exp were all identical (rapid logout+login in the same second), the resulting JWT string was byte-identical to the just-revoked one, so current_user hit the revoked_tokens denylist and returned 401 'Session ended' — the app then showed empty state (appeared 'erased' though data was owner_id-safe on the server). FIX (confirmed working): add a per-token unique 'jti'=uuid4() claim in create_token so no two tokens ever collide; logout revocation still keys on the token string, so it only invalidates the specific old token. Legacy savings-goals docs from the earlier single-goal endpoint used to 500 the list endpoint because required fields (name/celebrated/created_at) were absent — get_savings_goals now setdefaults them, verified by direct Mongo insertion."
+}
