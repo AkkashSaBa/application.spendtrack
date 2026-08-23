@@ -3,7 +3,7 @@ import { storage } from "@/src/utils/storage";
 const API = `${process.env.EXPO_PUBLIC_BACKEND_URL || ""}/api`;
 const TOKEN_KEY = "spendpulse-auth-token";
 
-export type User = { id: string; username: string; email: string };
+export type User = { id: string; username: string; email: string; role?: string };
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await storage.secureGet(TOKEN_KEY, null);
