@@ -1,0 +1,159 @@
+{
+  "app_name": "SpendPulse",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "Calm, trustworthy, and content-led personal finance dashboard with precise typographic hierarchy and glassmorphic clarity.",
+  "color": {
+    "surface": "#F9F8F6",
+    "onSurface": "#1C1C1E",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#1C1C1E",
+    "surfaceTertiary": "#F2F1ED",
+    "onSurfaceTertiary": "#3A3A3C",
+    "surfaceInverse": "#1C1C1E",
+    "onSurfaceInverse": "#F9F8F6",
+    "brand": "#4A6B5D",
+    "brandPrimary": "#4A6B5D",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#8CA89B",
+    "onBrandSecondary": "#1C1C1E",
+    "brandTertiary": "#E5EBE8",
+    "onBrandTertiary": "#2E473D",
+    "success": "#3B7A57",
+    "onSuccess": "#FFFFFF",
+    "warning": "#C28E38",
+    "onWarning": "#FFFFFF",
+    "error": "#B23B3B",
+    "onError": "#FFFFFF",
+    "info": "#4A6B5D",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E4E0",
+    "borderStrong": "#4A6B5D",
+    "divider": "#EAE8E4"
+  },
+  "typography": {
+    "displayFontFamily": "Satoshi",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical padding, structured grouping, and iOS-native comfort spacing.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use frosted glass over sticky headers and bottom navigation",
+      "Apply translucent surface overlays on featured cards"
+    ],
+    "dont's": [
+      "Never blur body text or form inputs",
+      "Avoid excessive stacking of blurred layers"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Dashboard",
+      "purpose": "Overview of total balance, monthly budget progress, interactive spending charts, and quick actions.",
+      "states": {
+        "loading": "Centered spinner with branded botanical tone",
+        "empty": "Botanical illustration with message 'No spending recorded this month' and primary CTA 'Add Transaction'",
+        "error": "Readable error message with Retry button"
+      },
+      "layout": "Sticky header with profile avatar, total balance hero card with monthly delta pill, interactive segmented time-range chart (Weekly/Monthly/Yearly), Quick Action row (Send, Add, Budget, Scan), and Recent Transactions feed."
+    },
+    {
+      "name": "Analytics & Charts",
+      "purpose": "Deep dive into category breakdown, cash flow trends, and comparative monthly summaries.",
+      "states": {
+        "loading": "Skeleton loading rows for category breakdown",
+        "empty": "Illustration showing 'Insufficient data for trends' with action to import statements",
+        "error": "Error banner with reconnect option"
+      },
+      "layout": "Segmented control for Expense vs Income, interactive donut breakdown of top categories with percentage indicators, and monthly historical comparison bar chart."
+    },
+    {
+      "name": "Categories",
+      "purpose": "Manage expense categories, budget limits, and category-specific spending caps.",
+      "states": {
+        "loading": "List skeleton placeholder",
+        "empty": "Empty state prompting creation of custom budget categories",
+        "error": "Error retry state"
+      },
+      "layout": "Vertical list of expense categories with custom color indicators, spent vs allocated progress bars, and quick tap to edit limits."
+    },
+    {
+      "name": "Monthly Summary",
+      "purpose": "Comprehensive review of monthly cash flow, savings rate, and financial health score.",
+      "states": {
+        "loading": "Summary loader animation",
+        "empty": "Prompt to generate first monthly report",
+        "error": "Failed to load summary statement"
+      },
+      "layout": "Month picker header, financial health score card, income vs expense comparison meters, and downloadable PDF report preview."
+    },
+    {
+      "name": "Transactions",
+      "purpose": "Searchable, filterable ledger of all financial activities and receipts.",
+      "states": {
+        "loading": "Transaction row skeletons",
+        "empty": "No transactions found matching filter criteria",
+        "error": "Failed to load transaction history"
+      },
+      "layout": "Sticky search and filter bar, date-grouped transaction list with merchant logos/avatars, amounts, and category tags."
+    }
+  ],
+  "images": {
+    "apple_logo": {
+      "url": "https://images.unsplash.com/photo-1649734924649-b559375080b0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHwxfHxhcHBsZSUyMHBheSUyMGxvZ28lMjB0cmFuc3BhcmVudCUyMHBuZ3xlbnwwfHx8fDE3ODc0MTU0ODF8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Apple Pay logo"
+    },
+    "spotify_logo": {
+      "url": "https://images.unsplash.com/photo-1707563496465-5963942d562c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwzfHxzcG90aWZ5JTIwbG9nbyUyMHRyYW5zcGFyZW50JTIwcG5nfGVufDB8fHx8MTc4NzQxNTQ4MXww&ixlib=rb-4.1.0&q=85",
+      "alt": "Spotify logo"
+    },
+    "starbucks_logo": {
+      "url": "https://images.unsplash.com/photo-133806509/pexels-photo-33806509.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Starbucks logo"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Build a pristine personal finance spending dashboard (SpendPulse) following iOS-Native Clean guidelines.",
+    "Strictly adhere to the Botanical palette (Deep forest green #4A6B5D anchor, warm sand #F9F8F6 background, crisp dark charcoal text) and ban all blues, indigos, purples, and violets.",
+    "Implement tabular numerals for all currency amounts and numerical data to prevent layout jitter.",
+    "Ensure every branded entity (Apple, Spotify, Starbucks) uses fetched logo PNGs or clean initials fallback.",
+    "Include sticky bottom navigation, interactive spending charts, category breakdown, monthly summary, and quick action flows."
+  ]
+}
