@@ -1,0 +1,37 @@
+{
+  "summary": "Backend-only regression for the forgot-password email bug fix and savings/negative-balance features. All 11 pytest cases passed (100%). The primary bug-fix test confirmed the backend now successfully calls the Emergent-managed Resend proxy (POST https://integrations.emergentagent.com/api/v1/email/send returned HTTP/1.1 202 Accepted) with no error logs. Non-registered emails still return {ok:true} (anti-enumeration preserved). Invalid/expired reset tokens correctly return 400. Savings transaction type creates and lists correctly, and for a fresh user with income=100, expense=250, savings=500 the balance (income-expense) = -150 and savings=500 is isolated. Auth (signup/login/me) and transaction CRUD regressions all pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py has grown to 545 lines; still under the 700-line threshold but nearing it — plan to split auth, transactions, budgets, and email helpers into modules soon.",
+    "APP_URL is read from env but never used in the reset email (the code intentionally emails the raw code for copy-paste). Consider removing the unused constant or wiring a deep link once mobile scheme is available.",
+    "send_email raises HTTPException(502/500) but the caller in forgot_password swallows it as a warning log — good for anti-enumeration, but means users get no signal on genuine outages. Consider a metric/alert on repeated failures.",
+    "Reset-password iterates up to 200 active tokens with bcrypt.checkpw per candidate; fine at current scale but O(n) — add an index on password_resets.expires_at and consider a shorter TTL or token id prefix if volume grows."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6.py (new)",
+    "/app/test_reports/pytest/iter6_results.xml (new)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "not tested (backend-only request)"
+  },
+  "seed_data_creation": "Each test creates disposable users (username prefixes fp/reg/tx/bal/crud/bad + uuid hex). Transactions are created against these throwaway users; the CRUD test cleans up via DELETE. No shared/production data mutated. QA account (qauser) was NOT touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Frontend base URL env var is EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL). Backend .env now has EMERGENT_EMAIL_KEY populated and EMAIL_FROM_NAME='Antrom'. Use delivered@resend.dev (or delivered+alias@resend.dev) as a safe sink for forgot-password send tests — Resend's proxy returns 202 without actually delivering. Evidence of successful send lives in /var/log/supervisor/backend.err.log as an httpx INFO line: 'POST https://integrations.emergentagent.com/api/v1/email/send \"HTTP/1.1 202 Accepted\"'. The endpoint always returns {ok:true} to prevent user enumeration — do not treat that as proof of send; check logs.",
+  "rca_of_issue": "Root cause of the reported 'not receiving forgot password code' bug: EMERGENT_EMAIL_KEY was an empty string in /app/backend/.env, so the send_email() call to https://integrations.emergentagent.com/api/v1/email/send authenticated with an empty X-Email-Key header. The Emergent email proxy rejected the request; the exception was caught by forgot_password() and only logged as a warning (per anti-enumeration design), so the API still returned {ok:true} while no email was actually sent. Fix: EMERGENT_EMAIL_KEY set to the provisioned value 'ek_4f1334ab41298121905250bb7e9840b5' and EMAIL_FROM_NAME='Antrom' in /app/backend/.env. Verified: httpx now logs '202 Accepted' from the proxy on every forgot-password call for a registered email, and no 'Email send failed' / 'Email send error' entries were produced during this test run. Mitigation: consider surfacing repeated email-send failures via a metric or admin alert so a silently-failing key is caught immediately in future."
+}
