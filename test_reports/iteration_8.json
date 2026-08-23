@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 8 - Multi-goal savings + monthly nudge + celebration validation. Backend: 20/20 pytest cases PASSED (100%) covering new /api/savings-goals CRUD, validation (target<=0 => 422, target_date 'nope' => 422, target_date null/omit ok, missing name/target => 422), auth gating (401 without token on GET/POST/PUT/DELETE), transaction goal_id linkage on POST /api/transactions type='savings', DELETE of a goal correctly nulls goal_id on any linked transactions (verified via GET /api/transactions), celebration persistence (PUT {celebrated:true} sticks across subsequent GETs), and per-user isolation (user A cannot see, update, or delete user B's goals — 404 on cross-user PUT/DELETE). Frontend (mobile viewport 390x900): signed up fresh user, created two goals via add-goal-btn (Emergency Fund ₹10,000 with 6-month preset target_date; Trip ₹5,000 no date). Both cards render with own rings (testID savings-goal-card-<id>). Emergency Fund shows nudge 'Save ₹1,667/mo to reach by Feb 2027' via goal-nudge-<id>. Trip shows '₹5,000 to go' nudge (no target_date branch). Added a ₹5,000 savings transaction tagged to Trip via goal-chip-<tripId> — celebration overlay (goal-celebration) appeared with 'Goal reached! 🎉 Trip' + celebration-done button. Dismissed, Trip switched to goal-badge-<id> 'Reached'. Reloaded page: celebration overlay did NOT reappear (celebrated persisted server-side), badge still visible, EF nudge still visible. Regression: income ₹100 + expense ₹250 => total-balance shows '-₹150' in red, low-balance-alert card renders, monthly Savings metric shows ₹5,000. No red-screen errors, no API failures. Deprecated packages detected: none. React-Native issues detected: only pre-known 'shadow*' style-props web deprecation warning (non-blocking, already tracked in iter7).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Goal editor modal", "issues": ["When 3+ goal-preset-* chips are rendered inside a horizontal ScrollView, some presets (goal-preset-6, goal-preset-12) may be off-screen on 390px width; Playwright's default click was rejected with 'element outside viewport'. Users can horizontally scroll, but no visual affordance shows there is more; consider a fade or an active-highlight indicator."]}
+    ],
+    "react_native_issues": [
+      {"component": "shadow* style props", "issue": "Console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\"'. Non-blocking on web preview / already reported in iter7. Reference: /app/frontend/app/index.tsx (StyleSheet entries using shadowColor/shadowOffset/shadowOpacity/shadowRadius)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter8.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Add a fade/scroll hint on the goal-preset chip row so users notice preset-6 / preset-12 exist on narrow devices.",
+    "(Carried) Migrate shadow* -> boxShadow in index.tsx to silence RN web deprecation warning.",
+    "(Carried) server.py is 640 lines — still under 700, but consider splitting auth/transactions/budgets/goals into modules."
+  ],
+  "critical_code_review_comments": [
+    "SavingsGoal model has target: float = Field(gt=0) and target_date validator that accepts None/'' and validates YYYY-MM-DD — correct.",
+    "SavingsGoalUpdate uses exclude_unset=True in $set — partial updates work as spec'd; celebrated=True flag correctly persists.",
+    "DELETE /api/savings-goals/{id} chains db.transactions.update_many({owner_id, goal_id: goal_id}, {$set: goal_id: null}) — verified in tests.",
+    "Transaction.goal_id is Optional[str] max_length=64 — POST with goal_id echoes it back and GET returns it. Good.",
+    "Frontend correctly computes per-goal saved client-side by summing transactions filtered by goal_id (spec).",
+    "Frontend calls PUT /api/savings-goals/{id} with {celebrated:true} once when goal is reached & !celebrated, then locally sets celebrated=true — matches 'never repeat' requirement; verified in UI reload."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter8.py (new)",
+    "/app/test_reports/pytest/iter8_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% (all critical flows verified — 2-goal create, nudge, celebration + persistence, badge, regression balance/low-alert)"},
+  "seed_data_creation": "Disposable users per test (prefixes mga/mgb/mgt + uuid). No production data modified. QA/pre-seeded 'celeb1787465098' account was NOT touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Frontend env var is EXPO_PUBLIC_BACKEND_URL. Pytest.ini enables xdist load-scoping which splits fixtures across workers — if you use module-scoped session fixtures, always create the row you need within the test itself (do not rely on prior test's DB state across workers). Use `-o addopts=''` to run pytest serially if you need fixture continuity. Goal-preset chips (goal-preset-3, goal-preset-6, goal-preset-12, goal-preset-none) are inside a horizontal ScrollView — use JS `element.click()` via page.evaluate to click off-viewport chips. Celebration overlay testID is 'goal-celebration' with 'celebration-done' button. Full-fund a goal by posting a savings transaction whose amount >= target and goal_id=<id>; then the overlay auto-appears and the backend is PUT with celebrated:true.",
+  "rca_of_issue": "N/A — all new multi-goal behavior (creation, per-goal ring/saved, nudge with target_date, badge when saved>=target, one-shot celebration, celebrated persistence, DELETE cascade unassigning goal_id on transactions) matches the spec on both backend and mobile web preview."
+}

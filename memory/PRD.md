@@ -53,4 +53,12 @@ Build a mobile app from the supplied Akash Spends concept, updated into a spendi
 - **Low Balance Alert**: gentle warning card on Overview shown only when Total Balance is negative (transferred > received), explaining the shortfall.
 - Verified end-to-end by testing agent (iteration 7): 11/11 backend + all frontend flows, no bugs.
 
+
+## Changelog — 2026-08-23 (multi-goal savings)
+- Reworked single savings goal into **multiple named goals**. Backend: /api/savings-goals CRUD (name, target, target_date, celebrated). Transactions gained optional goal_id; deleting a goal unassigns its savings transactions.
+- **Multiple Goals**: Overview lists a card + progress ring per goal; Add Transaction Savings tab tags savings to a chosen goal (or General).
+- **Monthly Save Nudge**: goals with a target date show "Save ₹X/mo to reach by <Mon YYYY>" (remaining ÷ months left).
+- **Goal Celebration**: hitting a goal (saved ≥ target) fires a one-time confetti + badge modal (react-native-confetti-cannon); celebrated flag persisted server-side so it never repeats. Reached goals show a "Reached" badge.
+- Verified by testing agent (iteration 8): 20/20 backend + all frontend flows, no blocking issues.
+
 3. Add optional statement import after the core manual workflow is reviewed.

@@ -134,6 +134,7 @@ class TransactionCreate(BaseModel):
     category: str = Field(min_length=1, max_length=40)
     note: Optional[str] = Field(default="", max_length=120)
     date: str = Field(min_length=10, max_length=10)
+    goal_id: Optional[str] = Field(default=None, max_length=64)
 
     @field_validator("date")
     @classmethod
@@ -162,13 +163,48 @@ class Budget(BaseModel):
     updated_at: str
 
 
-class SavingsGoalUpsert(BaseModel):
+class SavingsGoalCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
     target: float = Field(gt=0)
+    target_date: Optional[str] = Field(default=None)
+
+    @field_validator("target_date")
+    @classmethod
+    def validate_target_date(cls, value: Optional[str]) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("target_date must be a valid YYYY-MM-DD date") from exc
+        return value
+
+
+class SavingsGoalUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    target: Optional[float] = Field(default=None, gt=0)
+    target_date: Optional[str] = Field(default=None)
+    celebrated: Optional[bool] = None
+
+    @field_validator("target_date")
+    @classmethod
+    def validate_target_date(cls, value: Optional[str]) -> Optional[str]:
+        if value in (None, ""):
+            return value
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("target_date must be a valid YYYY-MM-DD date") from exc
+        return value
 
 
 class SavingsGoal(BaseModel):
     id: str
+    name: str
     target: float
+    target_date: Optional[str] = None
+    celebrated: bool = False
+    created_at: str
     updated_at: str
 
 
@@ -533,33 +569,53 @@ async def delete_budget(category: str, user: dict[str, Any] = Depends(current_us
     return {"ok": True}
 
 
-@api_router.get("/savings-goal", response_model=Optional[SavingsGoal])
-async def get_savings_goal(user: dict[str, Any] = Depends(current_user)):
-    doc = await db.savings_goals.find_one({"owner_id": user["id"]}, {"_id": 0, "owner_id": 0})
-    return SavingsGoal(**doc) if doc else None
+@api_router.get("/savings-goals", response_model=List[SavingsGoal])
+async def get_savings_goals(user: dict[str, Any] = Depends(current_user)):
+    docs = await db.savings_goals.find({"owner_id": user["id"]}, {"_id": 0, "owner_id": 0}).sort("created_at", 1).to_list(100)
+    return [SavingsGoal(**doc) for doc in docs]
 
 
-@api_router.put("/savings-goal", response_model=SavingsGoal)
-async def upsert_savings_goal(input: SavingsGoalUpsert, user: dict[str, Any] = Depends(current_user)):
+@api_router.post("/savings-goals", response_model=SavingsGoal)
+async def create_savings_goal(input: SavingsGoalCreate, user: dict[str, Any] = Depends(current_user)):
     now = datetime.now(timezone.utc).isoformat()
+    goal = SavingsGoal(
+        id=str(uuid.uuid4()),
+        name=input.name,
+        target=input.target,
+        target_date=input.target_date,
+        celebrated=False,
+        created_at=now,
+        updated_at=now,
+    )
+    await db.savings_goals.insert_one({**goal.model_dump(), "owner_id": user["id"]})
+    return goal
+
+
+@api_router.put("/savings-goals/{goal_id}", response_model=SavingsGoal)
+async def update_savings_goal(goal_id: str, input: SavingsGoalUpdate, user: dict[str, Any] = Depends(current_user)):
+    changes = input.model_dump(exclude_unset=True)
+    changes["updated_at"] = datetime.now(timezone.utc).isoformat()
     updated = await db.savings_goals.find_one_and_update(
-        {"owner_id": user["id"]},
-        {
-            "$set": {"target": input.target, "updated_at": now},
-            "$setOnInsert": {"id": str(uuid.uuid4()), "owner_id": user["id"]},
-        },
-        upsert=True,
+        {"id": goal_id, "owner_id": user["id"]},
+        {"$set": changes},
         return_document=ReturnDocument.AFTER,
         projection={"_id": 0, "owner_id": 0},
     )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Savings goal not found")
     return SavingsGoal(**updated)
 
 
-@api_router.delete("/savings-goal")
-async def delete_savings_goal(user: dict[str, Any] = Depends(current_user)):
-    result = await db.savings_goals.delete_one({"owner_id": user["id"]})
+@api_router.delete("/savings-goals/{goal_id}")
+async def delete_savings_goal(goal_id: str, user: dict[str, Any] = Depends(current_user)):
+    result = await db.savings_goals.delete_one({"id": goal_id, "owner_id": user["id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Savings goal not found")
+    # Unassign any savings transactions that pointed at this goal
+    await db.transactions.update_many(
+        {"owner_id": user["id"], "goal_id": goal_id},
+        {"$set": {"goal_id": None}},
+    )
     return {"ok": True}
 
 # Include the router in the main app
